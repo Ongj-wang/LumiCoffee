@@ -14,7 +14,7 @@ Flask 后端，提供以下 API：
 import logging
 
 from flask_cors import CORS
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, send_from_directory
 import sys
 import os
 import json
@@ -26,7 +26,10 @@ from datetime import datetime, timedelta
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from controller import StateMachine, TaskManager
 
-app = Flask(__name__)
+# 前端构建产物目录
+_dist_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "lumi-web", "dist")
+
+app = Flask(__name__, static_folder=_dist_dir, static_url_path="")
 CORS(app)
 
 # ======================================================================
@@ -310,13 +313,29 @@ def _add_demo_alert():
 
 
 # ======================================================================
+# SPA 前端路由（所有非 API 路径返回 index.html，由 Vue Router 接管）
+# ======================================================================
+
+@app.route("/")
+@app.route("/<path:path>")
+def serve_spa(path=""):
+    """服务前端 SPA，所有非 API 路径返回 index.html"""
+    # 如果请求的是静态资源（js/css/img），由 Flask static 处理
+    file_path = os.path.join(_dist_dir, path)
+    if path and os.path.isfile(file_path):
+        return send_from_directory(_dist_dir, path)
+    # 否则返回 index.html，让 Vue Router 处理前端路由
+    return send_from_directory(_dist_dir, "index.html")
+
+
+# ======================================================================
 # 启动
 # ======================================================================
 
 if __name__ == "__main__":
-    # 初始化几条模拟告警
-    _add_demo_alert()
-    _add_demo_alert()
+    # # 初始化几条模拟告警
+    # _add_demo_alert()
+    # _add_demo_alert()
 
     # 连接设备（无真实设备时会失败，但不影响 Flask 服务运行）
     state_machine.connect_devices()
@@ -327,5 +346,6 @@ if __name__ == "__main__":
     print("=" * 50)
     print("  Lumi 咖啡配送调度服务")
     print("  后端 API: http://localhost:5000/api")
+    print("  前端页面: http://localhost:5000")
     print("=" * 50)
     app.run(host="0.0.0.0", port=5000, debug=True, use_reloader=False)
