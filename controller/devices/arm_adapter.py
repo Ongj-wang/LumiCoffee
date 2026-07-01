@@ -67,6 +67,8 @@ class ArmAdapter(DeviceBase):
 
             self._set_state(DeviceState.CONNECTED)
             self._logger.info(f"机械臂连接成功: {ip}")
+            self.power_on()
+            self.enable()
             return True
         except Exception as e:
             self._set_state(DeviceState.ERROR, f"连接失败: {e}")

@@ -307,7 +307,7 @@ class StateMachine:
         pick_pose = self._compute_pick_pose(tray_slot)
 
         # 机械臂运动到放置位
-        ok = self.arm.move_to_joint(config.TAKE_CUP_READY_POSE)
+        ok = self.arm.move_to_pose(config.TAKE_CUP_READY_POSE)
         if not ok:
             logger.error("机械臂运动到取饮品位置失败")
             self._raise_alert("机械臂取饮品位置运动失败", level="warning")
@@ -319,7 +319,7 @@ class StateMachine:
         # 机械臂运动到放置位
         self.arm.move_to_pose(config.PLACE_POSE, move_mode=0, speed=40)
         self.arm.move_to_pose([0,0,-15,0,0,0],1,30)
-        self.arm.move_to_joint(config.PLACE_CUP_OVER, 60)
+        self.arm.move_to_pose(config.PLACE_CUP_OVER, 60)
 
         # # 夹爪释放
         # self.gripper.open()
@@ -481,7 +481,7 @@ class StateMachine:
         """刷新 AGV 状态到共享字典"""
         try:
             status = self.agv.get_status()
-            self.shared_status["connected"] = self.arm.connect()
+            self.shared_status["connected"] = self.arm.is_connected()
             self.shared_status["battery"] = status.get("battery", 0)
             self.shared_status["currentFloor"] = status.get("current_floor", 1)
             self.shared_status["currentPose"] = status.get("current_pose", {"x": 0, "y": 0, "theta": 0})
@@ -515,6 +515,6 @@ class StateMachine:
 
     def _compute_pick_pose(self, tray_slot: int):
         """根据托盘格子计算机械臂取杯位姿"""
-        if tray_slot < 0 or tray_slot >= len(config.PICK_POSE):
+        if tray_slot < 0 or tray_slot >= len(config.CUP_POSE):
             return None    
         return config.CUP_POSE[tray_slot]

@@ -32,6 +32,14 @@ class DeviceBase(ABC):
         self._state = DeviceState.DISCONNECTED
         self._error_msg: Optional[str] = None
         self._logger = logging.getLogger(f"controller.devices.{name}")
+        self._logger.propagate = False
+        _handler = logging.StreamHandler()
+        _handler.setLevel(logging.INFO)
+        _handler.setFormatter(logging.Formatter(
+            "%(asctime)s [%(name)s] %(levelname)s: %(message)s",
+            datefmt="%H:%M:%S",
+        ))
+        self._logger.addHandler(_handler)
 
     @property
     def name(self) -> str:
