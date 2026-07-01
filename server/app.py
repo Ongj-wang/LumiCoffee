@@ -121,18 +121,23 @@ def dispatch_order():
     if not items:
         return jsonify({"error": "配送条目不能为空"}), 400
 
+    # 全局分配托盘槽位（营业员放置顺序，从 0 开始）
+    for idx, item in enumerate(items):
+        item["tray_slot"] = idx
+
     # 按目标分组，每组生成一个配送订单
     groups = {}
     for item in items:
         drink = item.get("drink", "")
         floor = int(item.get("floor", 1))
         room = str(item.get("room", ""))
+        tray_slot = item.get("tray_slot", 0)
         if not drink or not room:
             continue
         key = f"{floor}F-{room}"
         if key not in groups:
             groups[key] = {"floor": floor, "room": room, "drinks": []}
-        groups[key]["drinks"].append(drink)
+        groups[key]["drinks"].append({"drink": drink, "tray_slot": tray_slot})
 
     created_orders = []
     for key, group in groups.items():
@@ -141,7 +146,7 @@ def dispatch_order():
             "room": group["room"],
             "floor": group["floor"],
             "customer": "",
-            "items": group["drinks"],
+            "items": group["drinks"],  # [{"drink": "拿铁", "tray_slot": 0}, ...]
             "status": "queued",
             "createdAt": datetime.now().isoformat(),
             "updatedAt": datetime.now().isoformat(),

@@ -18,11 +18,16 @@ AUTO_PRIORITIZE_MINUTES = 15
 
 @dataclass
 class DeliveryTask:
-    """配送任务"""
+    """配送任务
+
+    items 中的每个元素为字典，包含：
+    - drink: 饮品名称
+    - tray_slot: 托盘槽位号（营业员放置顺序，从 0 开始）
+    """
     order_id: str
     floor: int
     room: str
-    items: List[str]
+    items: List[Dict[str, Any]]  # [{"drink": "拿铁", "tray_slot": 0}, ...]
     priority: int = 0
     created_at: datetime = field(default_factory=datetime.now)
     position: int = 0
@@ -175,6 +180,7 @@ class TaskManager:
                 "position": t.position,
                 "created_at": t.created_at.isoformat(),
                 "waited_minutes": round((datetime.now() - t.created_at).total_seconds() / 60, 1),
+                "tray_slots": [item.get("tray_slot") for item in t.items],
             }
             for t in self._queue
         ]

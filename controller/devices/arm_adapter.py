@@ -20,7 +20,16 @@ class ArmAdapter(DeviceBase):
 
     封装 JK_SDK.RC 类，将 SDK 调用转换为状态机可直接使用的同步接口。
     所有运动方法默认阻塞执行（等待到位后返回）。
+
+    注：JK_SDK.RC 的所有方法返回元组，ret[0] == 0 表示调用成功。
     """
+
+    @staticmethod
+    def _is_success(ret) -> bool:
+        """判断 SDK 返回值是否成功（ret[0] == 0）"""
+        if isinstance(ret, tuple) and len(ret) > 0:
+            return ret[0] == 0
+        return False
 
     def __init__(self):
         super().__init__("arm")
@@ -52,7 +61,7 @@ class ArmAdapter(DeviceBase):
             ret = self._robot.login()
             self._logger.info(f"login 返回: {ret}")
 
-            if ret and ret[0] != 0:
+            if not self._is_success(ret):
                 self._set_state(DeviceState.ERROR, f"登录失败: {ret}")
                 return False
 
@@ -84,7 +93,7 @@ class ArmAdapter(DeviceBase):
         try:
             ret = self._robot.power_on()
             self._logger.info(f"power_on 返回: {ret}")
-            return ret == 0 if isinstance(ret, int) else True
+            return self._is_success(ret)
         except Exception as e:
             self._logger.error(f"上电失败: {e}")
             return False
@@ -96,7 +105,7 @@ class ArmAdapter(DeviceBase):
         try:
             ret = self._robot.enable_robot()
             self._logger.info(f"enable_robot 返回: {ret}")
-            return ret == 0 if isinstance(ret, int) else True
+            return self._is_success(ret)
         except Exception as e:
             self._logger.error(f"使能失败: {e}")
             return False
@@ -122,13 +131,13 @@ class ArmAdapter(DeviceBase):
             # move_mode=0 (关节插值), is_block=True (阻塞等待到位)
             ret = self._robot.joint_move(joint_pos, 0, True, speed)
             self._logger.info(f"joint_move 返回: {ret}")
-            return ret == 0 if isinstance(ret, int) else True
+            return self._is_success(ret)
         except Exception as e:
             self._logger.error(f"关节运动失败: {e}")
             self._set_state(DeviceState.ERROR, f"关节运动异常: {e}")
             return False
 
-    def move_to_pose(self, pose: List[float], speed: float = None) -> bool:
+    def move_to_pose(self, pose: List[float], move_mode:int =0, speed: float = None) -> bool:
         """笛卡尔直线运动到目标位姿（阻塞）
 
         Args:
@@ -142,10 +151,10 @@ class ArmAdapter(DeviceBase):
         self._logger.info(f"直线运动: {pose}, speed={speed}")
 
         try:
-            # move_mode=1 (直线插值), is_block=True
-            ret = self._robot.linear_move(pose, 1, True, speed)
+            # is_block=True
+            ret = self._robot.linear_move(pose, move_mode, True, speed)
             self._logger.info(f"linear_move 返回: {ret}")
-            return ret == 0 if isinstance(ret, int) else True
+            return self._is_success(ret)
         except Exception as e:
             self._logger.error(f"直线运动失败: {e}")
             self._set_state(DeviceState.ERROR, f"直线运动异常: {e}")
@@ -163,7 +172,7 @@ class ArmAdapter(DeviceBase):
         try:
             ret = self._robot.motion_abort()
             self._logger.info(f"motion_abort 返回: {ret}")
-            return True
+            return self._is_success(ret)
         except Exception as e:
             self._logger.error(f"中止运动失败: {e}")
             return False
@@ -186,7 +195,7 @@ class ArmAdapter(DeviceBase):
             val = 1 if value else 0
             ret = self._robot.set_digital_output(iotype, index, val)
             self._logger.info(f"DO[{iotype}][{index}] = {val}, 返回: {ret}")
-            return ret == 0 if isinstance(ret, int) else True
+            return self._is_success(ret)
         except Exception as e:
             self._logger.error(f"设置 DO 失败: {e}")
             return False
@@ -196,7 +205,11 @@ class ArmAdapter(DeviceBase):
         if not self.is_connected():
             return None
         try:
-            return self._robot.get_digital_input(iotype, index)
+            ret = self._robot.get_digital_input(iotype, index)
+            if self._is_success(ret):
+                return ret[1] if len(ret) > 1 else 0
+            self._logger.warning(f"读取 DI 失败: {ret}")
+            return None
         except Exception as e:
             self._logger.error(f"读取 DI 失败: {e}")
             return None
@@ -210,7 +223,11 @@ class ArmAdapter(DeviceBase):
         if not self.is_connected():
             return None
         try:
-            return self._robot.get_actual_tcp_position()
+            ret = self._robot.get_actual_tcp_position()
+            if self._is_success(ret):
+                return ret[1] if len(ret) > 1 else None
+            self._logger.warning(f"获取 TCP 位姿失败: {ret}")
+            return None
         except Exception as e:
             self._logger.error(f"获取 TCP 位姿失败: {e}")
             return None
@@ -220,7 +237,11 @@ class ArmAdapter(DeviceBase):
         if not self.is_connected():
             return None
         try:
-            return self._robot.get_actual_joint_position()
+            ret = self._robot.get_actual_joint_position()
+            if self._is_success(ret):
+                return ret[1] if len(ret) > 1 else None
+            self._logger.warning(f"获取关节角度失败: {ret}")
+            return None
         except Exception as e:
             self._logger.error(f"获取关节角度失败: {e}")
             return None
@@ -230,7 +251,11 @@ class ArmAdapter(DeviceBase):
         if not self.is_connected():
             return None
         try:
-            return self._robot.get_robot_state()
+            ret = self._robot.get_robot_state()
+            if self._is_success(ret):
+                return ret[1] if len(ret) > 1 else None
+            self._logger.warning(f"获取机器人状态失败: {ret}")
+            return None
         except Exception as e:
             self._logger.error(f"获取机器人状态失败: {e}")
             return None

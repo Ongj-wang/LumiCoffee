@@ -18,15 +18,21 @@ export interface Order {
   updatedAt: string
 }
 
+export interface TrayItem {
+  drink: string
+  tray_slot: number
+}
+
 export interface QueueItem {
   order_id: string
   floor: number
   room: string
-  items: string[]
+  items: TrayItem[]
   priority: number
   position: number
   created_at: string
   waited_minutes: number
+  tray_slots: number[]
 }
 
 export interface LumiStatus {

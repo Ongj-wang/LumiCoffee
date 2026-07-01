@@ -165,7 +165,7 @@ export default defineComponent({
                         </span>
                       </td>
                       <td style="font-weight: 600">{item.order_id}</td>
-                      <td>{item.items.join('、')}</td>
+                      <td>{item.items.map((i) => i.drink).join('、')}</td>
                       <td>{item.floor}F</td>
                       <td>{item.room}</td>
                       <td style={{ color: item.waited_minutes > 10 ? 'var(--danger)' : 'inherit' }}>

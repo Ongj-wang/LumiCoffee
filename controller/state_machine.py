@@ -62,7 +62,7 @@ class StateMachine:
         self._current_task: Optional[DeliveryTask] = None
         self._target_floor: int = 1
         self._target_room: str = ""
-        self._remaining_items: List[str] = []
+        self._remaining_items: List[Dict[str, Any]] = []  # [{"drink": "拿铁", "tray_slot": 0}, ...]
 
         # 告警回调
         self._alert_callback: Optional[Callable] = None
@@ -206,7 +206,7 @@ class StateMachine:
         self.shared_status["targetFloor"] = task.floor
         self.shared_status["targetRoom"] = task.room
 
-        logger.info(f"任务已取出: {task.order_id} -> {task.floor}F-{task.room}, 饮品={task.items}")
+        logger.info(f"任务已取出: {task.order_id} -> {task.floor}F-{task.room}, 托盘={task.items}")
         self._transition_to(RobotState.MOVING_TO_ELEVATOR)
 
     def _tick_moving_to_elevator(self):
@@ -282,6 +282,8 @@ class StateMachine:
 
         动作序列：停车稳定 → 机械臂伸出 → 夹爪释放 → 机械臂收回
         安全约束：底盘必须已停止
+
+        每次放置时从 _remaining_items 取第一杯，通过 tray_slot 确定托盘位置。
         """
         logger.info("开始放置咖啡...")
 
@@ -290,28 +292,47 @@ class StateMachine:
             logger.warning("底盘仍在移动，等待停止")
             return
 
-        # 机械臂运动到放置位
-        # TODO: 使用实际的放置位关节角度（需要现场标定）
-        place_joints = [0, 45, -90, 0, 45, 0]
-        ok = self.arm.move_to_joint(place_joints)
-        if not ok:
-            logger.error("机械臂运动到放置位失败")
-            self._raise_alert("机械臂放置位运动失败", level="warning")
-            self._transition_to(RobotState.ERROR, error_msg="机械臂运动失败")
+        # 获取当前要放置的饮品
+        if not self._remaining_items:
+            logger.warning("没有剩余饮品可放置")
+            self._transition_to(RobotState.RETURNING)
             return
 
-        # 夹爪释放
-        self.gripper.open()
-        time.sleep(0.5)
+        current_cup = self._remaining_items[0]
+        drink = current_cup.get("drink", "未知")
+        tray_slot = current_cup.get("tray_slot", 0)
+        logger.info(f"准备放置: {drink} (托盘第 {tray_slot} 格)")
+
+        # TODO: 根据 tray_slot 计算机械臂取杯位姿
+        pick_pose = self._compute_pick_pose(tray_slot)
+
+        # 机械臂运动到放置位
+        ok = self.arm.move_to_joint(config.TAKE_CUP_READY_POSE)
+        if not ok:
+            logger.error("机械臂运动到取饮品位置失败")
+            self._raise_alert("机械臂取饮品位置运动失败", level="warning")
+            self._transition_to(RobotState.ERROR, error_msg="机械臂取饮品位置运动失败")
+            return
+        self.arm.move_to_pose(pick_pose,0,50)
+        self.arm.move_to_pose([0,0,40,0,0,0],1,30) # 机械臂抬起饮品
+
+        # 机械臂运动到放置位
+        self.arm.move_to_pose(config.PLACE_POSE, move_mode=0, speed=40)
+        self.arm.move_to_pose([0,0,-15,0,0,0],1,30)
+        self.arm.move_to_joint(config.PLACE_CUP_OVER, 60)
+
+        # # 夹爪释放
+        # self.gripper.open()
+        # time.sleep(0.5)
 
         # 机械臂收回安全位
         self.arm.go_home()
         time.sleep(0.3)
 
-        # 移除已放置的饮品
+        # 任务队列中移除已放置的饮品
         if self._remaining_items:
             placed = self._remaining_items.pop(0)
-            logger.info(f"已放置: {placed}, 剩余: {len(self._remaining_items)}")
+            logger.info(f"已放置: {placed.get('drink')} (托盘第 {placed.get('tray_slot')} 格), 剩余: {len(self._remaining_items)}")
 
         # 检查是否还有同房间饮品
         if self._remaining_items:
@@ -491,3 +512,9 @@ class StateMachine:
                 })
             except Exception as e:
                 logger.error(f"告警回调异常: {e}")
+
+    def _compute_pick_pose(self, tray_slot: int):
+        """根据托盘格子计算机械臂取杯位姿"""
+        if tray_slot < 0 or tray_slot >= len(config.PICK_POSE):
+            return None    
+        return config.CUP_POSE[tray_slot]
