@@ -110,12 +110,12 @@ class ArmAdapter(DeviceBase):
 
         Args:
             joint_pos: 6 个关节角度（度），如 [0, 30, -60, 0, 90, 0]
-            speed: 速度比例（0.0-1.0），默认取 config.ARM_MOVE_SPEED
+            speed: 速度比例（0.0-1.0），默认取 config.ARM_JOINT_MOVE_SPEED
         """
         if not self.is_connected():
             return False
 
-        speed = speed or config.ARM_MOVE_SPEED
+        speed = speed or config.ARM_JOINT_MOVE_SPEED
         self._logger.info(f"关节运动: {joint_pos}, speed={speed}")
 
         try:
@@ -133,12 +133,12 @@ class ArmAdapter(DeviceBase):
 
         Args:
             pose: TCP 目标位姿 [x, y, z, rx, ry, rz]（mm + 弧度）
-            speed: 速度比例
+            speed: 速度
         """
         if not self.is_connected():
             return False
 
-        speed = speed or config.ARM_MOVE_SPEED
+        speed = speed or config.ARM_LINEAR_MOVE_SPEED
         self._logger.info(f"直线运动: {pose}, speed={speed}")
 
         try:
