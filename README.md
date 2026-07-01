@@ -87,9 +87,14 @@ npm install
 **设备连接配置** — `controller/config.py`：
 
 ```python
-AGV_HOST = "192.168.10.10"      # AGV 底盘 IP
-AGV_PORT = 31001                 # AGV 端口
-ARM_IP = "192.168.182.132"      # 机械臂 IP
+AGV_HOST = "192.168.10.10"        # AGV 底盘 IP
+AGV_PORT = 31001                   # AGV 端口
+ARM_IP = "192.168.182.132"        # 机械臂 IP
+ARM_HOME_JOINTS = [0,0,0,0,0,0]  # 机械臂安全位关节角度
+TAKE_CUP_READY_POSE = [0,0,0,0,0,0]  # 取杯准备位（关节角度）
+CUP_POSE = [...]                    # 各托盘槽位笛卡尔位姿
+PLACE_POSE = [0,0,0,0,0,0]       # 放置饮品位姿
+PLACE_CUP_OVER = [0,0,0,0,0,0]  # 放置完成后位姿
 ```
 
 **业务配置** — `server/server_config.json`：
@@ -158,11 +163,23 @@ RETURNING ← COMPLETED ← PLACING_COFFEE ← VISION_CALIBRATING
 | `taking_elevator` | 乘梯至目标楼层 |
 | `navigating_to_room` | 导航至房间门口 |
 | `vision_calibrating` | 视觉定位校准 |
-| `placing_coffee` | 机械臂放置饮品 |
+| `placing_coffee` | 根据 tray_slot 取杯并放置饮品 |
 | `returning` | 返回取餐点 |
 | `completed` | 任务完成 |
 | `error` | 异常状态 |
 | `charging` | 前往充电 |
+
+## 托盘系统
+
+咖啡按营业员添加顺序放置在机器人托盘上，每杯分配一个 `tray_slot`（从 0 开始）：
+
+```
+托盘: [ slot 0: 拿铁 ] [ slot 1: 美式 ] [ slot 2: 冰拿铁 ]
+```
+
+- 前端送出时，后端按提交顺序全局分配 `tray_slot`，再按楼层-房间分组生成任务
+- 状态机放置时通过 `_compute_pick_pose(tray_slot)` 查找对应槽位的笛卡尔位姿
+- 托盘位姿在 `controller/config.py` 的 `CUP_POSE` 中配置（需现场标定）
 
 ## 任务调度策略
 
@@ -183,7 +200,7 @@ RETURNING ← COMPLETED ← PLACING_COFFEE ← VISION_CALIBRATING
 | 设备 | 型号 | 状态 |
 |------|------|------|
 | 移动底盘 | JAKA Lumi AGV | 已集成（agv_comm 模组） |
-| 机械臂 | JAKA（JK_SDK） | 已集成（关节/直线运动 + IO 控制） |
+| 机械臂 | JAKA（JK_SDK） | 已集成（关节/直线运动 + IO 控制，SDK 返回元组 ret[0]==0 为成功） |
 | 视觉相机 | 待定 | 预留接口（stub） |
 | 夹爪 | 待定 | 预留接口（stub） |
 
