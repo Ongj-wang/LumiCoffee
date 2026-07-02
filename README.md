@@ -54,6 +54,8 @@ LumiCoffee/
 │
 ├── JK_SDK/                  # JAKA 机械臂 SDK
 │
+├── mock_agv_server.py       # AGV 模拟服务（开发测试用）
+│
 └── 资料手册/                 # 硬件文档
     ├── AGV API手册.pdf
     └── JAKA Lumi底盘使用手册.pdf
@@ -109,22 +111,41 @@ PLACE_CUP_OVER = [0,0,0,0,0,0]  # 放置完成后位姿
 
 ### 3. 启动服务
 
-**启动后端（先启动）：**
+**开发模式（前后端分离）：**
 
 ```bash
+# 终端 1：启动后端
 python server/app.py
-```
 
-后端运行在 `http://localhost:5000`。
-
-**启动前端：**
-
-```bash
+# 终端 2：启动前端（热更新）
 cd lumi-web
 npm run dev
 ```
 
-前端运行在 `http://localhost:5173`，API 请求自动代理到后端。
+前端运行在 `http://localhost:5173`，API 请求自动代理到后端 `5000` 端口。
+
+**生产模式（一体化部署）：**
+
+```bash
+# 先构建前端
+cd lumi-web
+npm run build
+
+# 启动 Flask（同时托管前端和 API）
+python server/app.py
+```
+
+访问 `http://localhost:5000` 即可，前端静态文件和 API 共用同一个端口。
+
+### 4. 模拟 AGV（可选）
+
+开发环境没有真实硬件时，可启动 AGV 模拟服务：
+
+```bash
+python mock_agv_server.py
+```
+
+模拟服务监听 `0.0.0.0:31001`，支持移动模拟、状态查询、急停等操作。
 
 ## API 接口
 
