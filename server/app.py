@@ -25,11 +25,12 @@ from http import HTTPStatus
 # 确保 controller 模块可导入
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from controller import StateMachine, TaskManager
+from controller.calibration_service import CalibrationService
 
 # 前端构建产物目录
 _dist_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "lumi-web", "dist")
 
-app = Flask(__name__, static_folder=_dist_dir, static_url_path="")
+app = Flask(__name__, static_folder=None)  # 禁用内置静态服务，由 serve_spa 统一处理
 CORS(app)
 
 # ======================================================================
@@ -38,6 +39,9 @@ CORS(app)
 
 task_manager = TaskManager()
 state_machine = StateMachine(task_manager)
+
+# 标定服务（复用状态机中的 arm 和 vision 适配器）
+calib_service = CalibrationService(state_machine.arm, state_machine.vision)
 
 logger = logging.getLogger("werkzeug")
 logger.setLevel(logging.WARNING)
@@ -371,6 +375,51 @@ def _add_demo_alert():
         "timestamp": datetime.now().isoformat(),
         "resolved": False,
     })
+
+
+# ======================================================================
+# 视觉标定 API
+# ======================================================================
+
+@app.route("/api/calib/preview", methods=["GET"])
+def calib_preview():
+    """获取相机实时预览图（base64 JPEG）"""
+    preview = calib_service.get_preview()
+    if preview:
+        return jsonify({"preview": preview})
+    return jsonify({"error": "无法获取相机图像"}), 500
+
+
+@app.route("/api/calib/capture", methods=["POST"])
+def calib_capture():
+    """采集一组标定数据（拍照 + TCP 位姿 + 角点检测）"""
+    result = calib_service.capture_sample()
+    return jsonify(result)
+
+
+@app.route("/api/calib/samples", methods=["GET"])
+def calib_samples():
+    """获取已采集的标定数据列表"""
+    return jsonify(calib_service.get_samples())
+
+
+@app.route("/api/calib/samples", methods=["DELETE"])
+def calib_clear():
+    """清空已采集的标定数据"""
+    return jsonify(calib_service.clear_samples())
+
+
+@app.route("/api/calib/run", methods=["POST"])
+def calib_run():
+    """运行手眼标定计算"""
+    result = calib_service.run_calibration()
+    return jsonify(result)
+
+
+@app.route("/api/calib/result", methods=["GET"])
+def calib_result():
+    """获取当前标定结果"""
+    return jsonify(calib_service.get_result())
 
 
 # ======================================================================

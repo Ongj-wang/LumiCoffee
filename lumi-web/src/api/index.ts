@@ -182,3 +182,69 @@ export const alertApi = {
     return http.post(`/alerts/${alertId}/resolve`)
   },
 }
+
+// ---------- 视觉标定接口 ----------
+
+export interface CalibSample {
+  index: number
+  pose: number[]
+  preview: string
+}
+
+export interface CalibResult {
+  CameraMatrix: number[][]
+  CameraDistCoeffs: number[][]
+  RotationMat: number[][]
+  TranslationMat: number[][]
+}
+
+export const calibApi = {
+  /** 获取相机实时预览 */
+  getPreview(): Promise<{ data: { preview: string } }> {
+    return http.get('/calib/preview', { timeout: 15000 })
+  },
+
+  /** 采集一组标定数据 */
+  capture(): Promise<{ data: {
+    success: boolean
+    message: string
+    sample_count: number
+    preview: string
+    corners_found: boolean
+    pose: number[]
+  } }> {
+    return http.post('/calib/capture', {}, { timeout: 15000 })
+  },
+
+  /** 获取已采集数据列表 */
+  getSamples(): Promise<{ data: {
+    count: number
+    min_required: number
+    samples: CalibSample[]
+  } }> {
+    return http.get('/calib/samples')
+  },
+
+  /** 清空采集数据 */
+  clearSamples(): Promise<{ data: { success: boolean; message: string; cleared: number } }> {
+    return http.delete('/calib/samples')
+  },
+
+  /** 运行标定计算 */
+  run(): Promise<{ data: {
+    success: boolean
+    message: string
+    result: CalibResult | null
+  } }> {
+    return http.post('/calib/run', {}, { timeout: 60000 })
+  },
+
+  /** 获取标定结果 */
+  getResult(): Promise<{ data: {
+    has_result: boolean
+    result: CalibResult | null
+    source?: string
+  } }> {
+    return http.get('/calib/result')
+  },
+}

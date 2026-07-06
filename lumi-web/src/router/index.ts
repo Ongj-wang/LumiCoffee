@@ -24,6 +24,12 @@ const routes: RouteRecordRaw[] = [
     component: () => import('../views/AlertPanel'),
     meta: { title: '异常处理' },
   },
+  {
+    path: '/calib',
+    name: 'VisionCalib',
+    component: () => import('../views/VisionCalib'),
+    meta: { title: '视觉标定' },
+  },
 ]
 
 const router = createRouter({

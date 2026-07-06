@@ -400,6 +400,190 @@ tr:hover td {
   gap: 8px;
   margin-top: 24px;
 }
+
+/* ---------- 视觉标定页面 ---------- */
+
+.calib-page {
+  max-width: 1200px;
+}
+
+.calib-header h2 {
+  font-size: 22px;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+.calib-desc {
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin-bottom: 16px;
+}
+
+.calib-msg {
+  padding: 10px 16px;
+  border-radius: 8px;
+  margin-bottom: 16px;
+  font-size: 14px;
+}
+
+.calib-msg-success {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.calib-msg-error {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.calib-msg-info {
+  background: #dbeafe;
+  color: #1e40af;
+}
+
+.calib-body {
+  display: flex;
+  gap: 24px;
+}
+
+.calib-left {
+  width: 480px;
+  flex-shrink: 0;
+}
+
+.calib-right {
+  flex: 1;
+  min-width: 0;
+}
+
+.calib-preview-box {
+  background: #000;
+  border-radius: var(--radius);
+  overflow: hidden;
+  aspect-ratio: 4 / 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+}
+
+.calib-preview-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.calib-preview-placeholder {
+  color: #64748b;
+  font-size: 14px;
+}
+
+.calib-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.calib-count {
+  margin-top: 8px;
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.calib-count strong {
+  color: var(--primary);
+  font-size: 16px;
+}
+
+.calib-section {
+  margin-bottom: 24px;
+}
+
+.calib-section h3 {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 12px;
+}
+
+.calib-samples-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 12px;
+}
+
+.calib-sample-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--card);
+}
+
+.calib-sample-card img {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+}
+
+.calib-sample-info {
+  padding: 6px 8px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.calib-pose {
+  font-family: monospace;
+  font-size: 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 110px;
+}
+
+.calib-result {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.calib-result details {
+  margin-bottom: 8px;
+}
+
+.calib-result summary {
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  padding: 6px 0;
+}
+
+.calib-result pre {
+  font-size: 12px;
+  background: #f8fafc;
+  border-radius: 6px;
+  padding: 10px;
+  overflow-x: auto;
+  margin-top: 8px;
+}
+
+.calib-empty {
+  color: var(--text-secondary);
+  font-size: 14px;
+  padding: 24px;
+  text-align: center;
+}
+
+@media (max-width: 900px) {
+  .calib-body {
+    flex-direction: column;
+  }
+  .calib-left {
+    width: 100%;
+  }
+}
 :root {
   --text: #6b6375;
   --text-h: #08060d;

@@ -8,6 +8,7 @@ export default defineComponent({
       { path: '/order', icon: '📋', label: '订单确认' },
       { path: '/queue', icon: '📦', label: '队列状态' },
       { path: '/alerts', icon: '🔔', label: '异常处理' },
+      { path: '/calib', icon: '📷', label: '视觉标定' },
     ]
 
     return () => (
