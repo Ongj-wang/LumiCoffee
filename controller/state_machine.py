@@ -9,7 +9,7 @@ import time
 import logging
 import threading
 from enum import Enum
-from typing import Optional, Dict, Any, List, Callable
+from typing import Optional, Dict, Any, List, Callable, Tuple
 
 from controller import config
 from controller.task_manager import TaskManager, DeliveryTask
@@ -74,6 +74,7 @@ class StateMachine:
             "order_id": "",             # 当前任务单号
         }
         
+        self._vision_offset: Tuple[float, float, float] = (0.0, 0.0, 0.0)  # 视觉校准偏差
 
         # 告警回调
         self._alert_callback: Optional[Callable] = None
@@ -270,7 +271,14 @@ class StateMachine:
             self._transition_to(RobotState.ERROR, error_msg=f"导航失败: {target_marker}",  error_source="navigating_to_room")
 
     def _tick_vision_calibrating(self):
-        """VISION_CALIBRATING: 视觉校准放置位置"""
+        """VISION_CALIBRATING: 视觉校准放置位置
+
+        流程：
+        1. 拍照获取彩色图 + 深度图
+        2. 检测桌面是否有杂物（深度差分析）
+        3. 若有杂物 → 告警，不放置
+        4. 若干净 → 计算放置坐标，进入放置阶段
+        """
         logger.info("视觉校准中...")
 
         # 拍照
@@ -280,16 +288,26 @@ class StateMachine:
             self._transition_to(RobotState.PLACING_COFFEE)
             return
 
-        # 检测目标
-        offset = self.vision.detect_target()
-        if offset is None:
-            logger.warning("未检测到目标，回退到盲放模式")
+        # 综合检测：桌面杂物检查 + 放置坐标计算
+        result = self.vision.detect_target()
+        if result is None:
+            logger.warning("视觉检测失败，回退到盲放模式")
             self._transition_to(RobotState.PLACING_COFFEE)
             return
 
-        dx, dy, dtheta = offset
-        logger.info(f"视觉偏差: dx={dx}mm, dy={dy}mm, dtheta={dtheta}rad")
-        # TODO: 将偏差量传给机械臂做补偿
+        if not result["clear"]:
+            # 桌面有杂物，不能放置
+            msg = result.get("message", "桌面有杂物")
+            logger.warning(f"桌面检测未通过: {msg}")
+            self._raise_alert(f"放置位置检测异常: {msg}", level="warning")
+            self._transition_to(RobotState.ERROR, error_msg=f"桌面有杂物，无法放置: {msg}")
+            return
+
+        # 桌面干净，获取放置坐标偏差
+        offset = result.get("placement_offset", (0.0, 0.0, 0.0))
+        self._vision_offset = offset
+        dx, dy, dz = offset
+        logger.info(f"视觉校准通过: dx={dx:.1f}mm, dy={dy:.1f}mm, dz={dz:.1f}mm")
         self._transition_to(RobotState.PLACING_COFFEE)
 
     def _tick_placing_coffee(self):
