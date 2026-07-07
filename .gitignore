@@ -1,0 +1,9 @@
+# python
+.venv**/
+**/**.pyc
+
+# vscode
+.vscode/
+
+# vue 
+**/node_modules/
