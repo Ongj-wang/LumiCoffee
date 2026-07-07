@@ -98,7 +98,7 @@ class AGVAdapter(DeviceBase):
                 status = self._client.status.get_robot_status(timeout=5)
                 results = status.get("results", {})
                 move_status = results.get("move_status", "")
-
+                print("move_to:move_status",move_status)
                 if move_status == "succeeded":
                     self._logger.info(f"已到达目标: {target_name}")
                     return True

@@ -29,6 +29,7 @@ interface LumiState {
 export default defineComponent({
   name: 'AlertPanel',
   setup() {
+    const actionableErrorSources = ['placing_coffee', 'navigating_to_room', 'returning'] as const
     const alerts = ref<Alert[]>([])
     const filter = ref<'all' | 'unresolved'>('unresolved')
     const lumiState = ref<LumiState | null>(null)
@@ -91,15 +92,28 @@ export default defineComponent({
     const showRobotActionPanel = computed(() => {
       return (
         lumiState.value?.robotState === 'error' &&
-        errorContext.value?.source === 'placing_coffee'
+        !!errorContext.value?.source &&
+        actionableErrorSources.includes(errorContext.value.source as typeof actionableErrorSources[number])
       )
     })
 
     const canCancelCurrentCup = computed(() => {
+      if (
+        !!errorContext.value?.source &&
+        actionableErrorSources.includes(errorContext.value.source as typeof actionableErrorSources[number])
+      ) {
+        return true
+      }
       return !!errorContext.value?.availableActions?.includes('cancel_current_cup')
     })
 
     const canSkipCurrentCup = computed(() => {
+      if (
+        !!errorContext.value?.source &&
+        actionableErrorSources.includes(errorContext.value.source as typeof actionableErrorSources[number])
+      ) {
+        return true
+      }
       return !!errorContext.value?.availableActions?.includes('skip_current_cup')
     })
 
