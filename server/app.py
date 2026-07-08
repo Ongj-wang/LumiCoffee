@@ -21,7 +21,7 @@ import json
 import uuid
 import random
 from datetime import datetime, timedelta
-
+from http import HTTPStatus
 # 确保 controller 模块可导入
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from controller import StateMachine, TaskManager
@@ -228,7 +228,10 @@ def dispatch_next():
 @app.route("/api/lumi/status", methods=["GET"])
 def get_lumi_status():
     """获取 Lumi 当前状态（从状态机共享状态读取）"""
-    return jsonify(state_machine.shared_status)
+    status = dict(state_machine.shared_status)# 深拷贝
+    #先拷贝一份，再补上 errorContext
+    status["errorContext"] = state_machine.get_error_context()
+    return jsonify(status)
 
 
 @app.route("/api/lumi/state", methods=["GET"])
@@ -240,6 +243,7 @@ def get_lumi_state():
         "targetFloor": state_machine.shared_status.get("targetFloor"),
         "targetRoom": state_machine.shared_status.get("targetRoom"),
         "queueLength": task_manager.queue_length,
+        "errorContext": state_machine.get_error_context(),
         "devices": {
             "agv": state_machine.agv.get_status(),
             "arm": state_machine.arm.get_status(),
@@ -287,6 +291,63 @@ def resolve_alert(alert_id):
 
     alert["resolved"] = True
     return jsonify({"ok": True})
+
+
+
+
+
+#
+# 订单错误处理API 
+#
+
+@app.route("/api/lumi/handle_error", methods=["POST"])
+def handle_error():
+    """
+    处理错误态下的人工决策动作。
+
+    Request Body:
+        {
+            "action": "skip_current_cup" | "cancel_current_cup" | "retry" | "abort"
+        }
+
+    Response:
+        { "ok": true }
+    """
+
+    VALID_ERROR_ACTIONS = {
+        "skip_current_cup",
+        "cancel_current_cup",
+        "retry",
+        "abort",
+    }
+
+    # 1. 解析 JSON
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"ok": False, "error": "请求体必须是 JSON 对象"}), HTTPStatus.BAD_REQUEST
+
+    action = data.get("action")
+
+    # 2. 校验参数
+    if not action:
+        return jsonify({"ok": False, "error": "缺少 action 字段"}), HTTPStatus.BAD_REQUEST
+
+    if action not in VALID_ERROR_ACTIONS:
+        return jsonify({
+            "ok": False,
+            "error": f"非法 action: {action}，可选值: {', '.join(VALID_ERROR_ACTIONS)}"
+        }), HTTPStatus.BAD_REQUEST
+
+    # 3. 调用状态机
+    try:
+        state_machine.submit_error_action(action)
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+    # 4. 返回成功
+    return jsonify({"ok": True}), HTTPStatus.OK
+
+
 
 
 # ======================================================================

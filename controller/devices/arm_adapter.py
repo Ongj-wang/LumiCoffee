@@ -58,7 +58,7 @@ class ArmAdapter(DeviceBase):
 
             from JK_SDK import RC
             self._robot = RC(ip)
-            ret = self._robot.login()
+            ret = self._robot.login(True,"jaka_sdk",config.ARM_PASSWORD)
             self._logger.info(f"login 返回: {ret}")
 
             if not self._is_success(ret):

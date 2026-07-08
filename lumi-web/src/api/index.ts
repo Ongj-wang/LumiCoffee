@@ -35,6 +35,21 @@ export interface QueueItem {
   tray_slots: number[]
 }
 
+export type ErrorAction = 'skip_current_cup' | 'cancel_current_cup'
+
+export interface ErrorCup {
+  drink: string
+  tray_slot: number
+}
+
+export interface ErrorContext {
+  source: string | null
+  actionPending: boolean
+  availableActions: ErrorAction[]
+  cup: ErrorCup | null
+  message: string | null
+}
+
 export interface LumiStatus {
   connected: boolean
   moveStatus: 'idle' | 'running' | 'succeeded' | 'failed' | 'canceled'
@@ -44,6 +59,25 @@ export interface LumiStatus {
   charging: boolean
   estop: boolean
   currentTask: string | null
+  robotState?: string
+  targetFloor?: number | null
+  targetRoom?: string | null
+  errorContext?: ErrorContext
+}
+
+export interface LumiState {
+  robotState: string
+  currentTask: string | null
+  targetFloor: number | null
+  targetRoom: string | null
+  queueLength: number
+  errorContext?: ErrorContext
+  devices: {
+    agv: Record<string, unknown>
+    arm: Record<string, unknown>
+    vision: Record<string, unknown>
+    gripper: Record<string, unknown>
+  }
 }
 
 export interface Alert {
@@ -122,6 +156,16 @@ export const lumiApi = {
   /** 获取 Lumi 当前状态 */
   getStatus(): Promise<{ data: LumiStatus }> {
     return http.get('/lumi/status')
+  },
+
+  /** 获取状态机详细状态 */
+  getState(): Promise<{ data: LumiState }> {
+    return http.get('/lumi/state')
+  },
+
+  /** 提交人工干预动作 */
+  submitErrorAction(action: ErrorAction): Promise<void> {
+    return http.post('/lumi/handle_error', { action })
   },
 }
 

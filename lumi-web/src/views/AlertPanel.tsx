@@ -1,35 +1,75 @@
 import { defineComponent, ref, computed, onMounted, onUnmounted } from 'vue'
-import { alertApi } from '../api'
+import { alertApi, lumiApi } from '../api'
 import type { Alert } from '../api'
+
+type ErrorAction = 'skip_current_cup' | 'cancel_current_cup'
+
+interface ErrorCup {
+  drink: string
+  tray_slot: number
+}
+
+interface ErrorContext {
+  source: string | null
+  actionPending: boolean
+  availableActions: ErrorAction[]
+  cup: ErrorCup | null
+  message: string | null
+}
+
+interface LumiState {
+  robotState: string
+  currentTask: string | null
+  targetFloor: number | null
+  targetRoom: string | null
+  queueLength: number
+  errorContext?: ErrorContext
+}
 
 export default defineComponent({
   name: 'AlertPanel',
   setup() {
+    const actionableErrorSources = ['placing_coffee', 'navigating_to_room', 'returning'] as const
     const alerts = ref<Alert[]>([])
     const filter = ref<'all' | 'unresolved'>('unresolved')
+    const lumiState = ref<LumiState | null>(null)
+    const actionLoading = ref<ErrorAction | null>(null)
     let timer: ReturnType<typeof setInterval> | null = null
 
-    /** 加载告警列表 */
-    const loadAlerts = async () => {
+    const loadPageData = async () => {
       try {
-        const res = await alertApi.getAlerts()
-        alerts.value = res.data
+        const [alertRes, stateRes] = await Promise.all([
+          alertApi.getAlerts(),
+          lumiApi.getState(),
+        ])
+        alerts.value = alertRes.data
+        lumiState.value = stateRes.data
       } catch (e) {
-        console.error('加载告警失败', e)
+        console.error('加载异常页数据失败', e)
       }
     }
 
-    /** 标记已处理 */
-    const resolve = async (alertId: string) => {
+    const resolveAlert = async (alertId: string) => {
       try {
         await alertApi.resolveAlert(alertId)
-        await loadAlerts()
+        await loadPageData()
       } catch (e) {
         console.error('处理告警失败', e)
       }
     }
 
-    /** 过滤后的告警 */
+    const submitErrorAction = async (action: ErrorAction) => {
+      try {
+        actionLoading.value = action
+        await lumiApi.submitErrorAction(action)
+        await loadPageData()
+      } catch (e) {
+        console.error('提交人工干预动作失败', e)
+      } finally {
+        actionLoading.value = null
+      }
+    }
+
     const filteredAlerts = computed(() => {
       if (filter.value === 'unresolved') {
         return alerts.value.filter((a) => !a.resolved)
@@ -37,7 +77,6 @@ export default defineComponent({
       return alerts.value
     })
 
-    /** 统计 */
     const stats = computed(() => {
       const unresolved = alerts.value.filter((a) => !a.resolved)
       return {
@@ -48,7 +87,36 @@ export default defineComponent({
       }
     })
 
-    /** 级别图标 */
+    const errorContext = computed(() => lumiState.value?.errorContext ?? null)
+
+    const showRobotActionPanel = computed(() => {
+      return (
+        lumiState.value?.robotState === 'error' &&
+        !!errorContext.value?.source &&
+        actionableErrorSources.includes(errorContext.value.source as typeof actionableErrorSources[number])
+      )
+    })
+
+    const canCancelCurrentCup = computed(() => {
+      if (
+        !!errorContext.value?.source &&
+        actionableErrorSources.includes(errorContext.value.source as typeof actionableErrorSources[number])
+      ) {
+        return true
+      }
+      return !!errorContext.value?.availableActions?.includes('cancel_current_cup')
+    })
+
+    const canSkipCurrentCup = computed(() => {
+      if (
+        !!errorContext.value?.source &&
+        actionableErrorSources.includes(errorContext.value.source as typeof actionableErrorSources[number])
+      ) {
+        return true
+      }
+      return !!errorContext.value?.availableActions?.includes('skip_current_cup')
+    })
+
     const levelIcon: Record<string, string> = {
       info: 'ℹ️',
       warning: '⚠️',
@@ -56,8 +124,8 @@ export default defineComponent({
     }
 
     onMounted(() => {
-      loadAlerts()
-      timer = setInterval(loadAlerts, 10000)
+      loadPageData()
+      timer = setInterval(loadPageData, 10000)
     })
 
     onUnmounted(() => {
@@ -67,11 +135,10 @@ export default defineComponent({
     return () => (
       <div>
         <div class="page-header">
-          <h2>🔔 异常处理</h2>
-          <p>查看和处理 Lumi 运行中的异常告警（每 10 秒自动刷新）</p>
+          <h2>异常处理</h2>
+          <p>查看告警，并在放杯异常时进行人工处置</p>
         </div>
 
-        {/* 统计卡片 */}
         <div class="stats-row">
           <div class="stat-card">
             <div class="stat-value" style={{ color: 'var(--danger)' }}>{stats.value.unresolved}</div>
@@ -91,11 +158,67 @@ export default defineComponent({
           </div>
         </div>
 
-        {/* 告警列表 */}
+        {showRobotActionPanel.value && (
+          <div class="card" style={{ borderColor: '#f59e0b', background: '#fffaf0' }}>
+            <div class="card-title">当前机器人异常处置</div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '14px' }}>
+              <div>
+                当前任务：{lumiState.value?.currentTask || '--'}
+              </div>
+              <div>
+                目标位置：
+                {lumiState.value?.targetFloor && lumiState.value?.targetRoom
+                  ? `${lumiState.value.targetFloor}F-${lumiState.value.targetRoom}`
+                  : '--'}
+              </div>
+              <div>
+                错误来源：{errorContext.value?.source || '--'}
+              </div>
+              <div>
+                错误信息：{errorContext.value?.message || '--'}
+              </div>
+              <div>
+                当前杯：
+                {errorContext.value?.cup
+                  ? `${errorContext.value.cup.drink} / 托盘第 ${errorContext.value.cup.tray_slot} 格`
+                  : '--'}
+              </div>
+              {errorContext.value?.actionPending && (
+                <div style={{ color: 'var(--warning)', fontWeight: 600 }}>
+                  人工动作已提交，等待状态机处理
+                </div>
+              )}
+            </div>
+
+            <div style={{ display: 'flex', gap: '8px', marginTop: '16px' }}>
+              {canCancelCurrentCup.value && (
+                <button
+                  class="btn btn-outline btn-sm"
+                  disabled={actionLoading.value !== null || errorContext.value?.actionPending}
+                  onClick={() => submitErrorAction('cancel_current_cup')}
+                >
+                  {actionLoading.value === 'cancel_current_cup' ? '提交中...' : '取消当前杯'}
+                </button>
+              )}
+
+              {canSkipCurrentCup.value && (
+                <button
+                  class="btn btn-primary btn-sm"
+                  disabled={actionLoading.value !== null || errorContext.value?.actionPending}
+                  onClick={() => submitErrorAction('skip_current_cup')}
+                >
+                  {actionLoading.value === 'skip_current_cup' ? '提交中...' : '下一杯'}
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
         <div class="card">
           <div class="card-title">
             <span>告警列表</span>
-            <div style="margin-left: auto; display: flex; gap: 8px">
+            <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px' }}>
               <button
                 class={`btn btn-sm ${filter.value === 'unresolved' ? 'btn-primary' : 'btn-outline'}`}
                 onClick={() => (filter.value = 'unresolved')}
@@ -108,19 +231,19 @@ export default defineComponent({
               >
                 全部
               </button>
-              <button class="btn btn-outline btn-sm" onClick={loadAlerts}>
-                🔄 刷新
+              <button class="btn btn-outline btn-sm" onClick={loadPageData}>
+                刷新
               </button>
             </div>
           </div>
 
           {filteredAlerts.value.length === 0 ? (
             <div class="empty-state">
-              <div class="empty-state-icon">✅</div>
+              <div class="empty-state-icon">✓</div>
               <p>{filter.value === 'unresolved' ? '没有待处理的告警' : '暂无告警记录'}</p>
             </div>
           ) : (
-            <div style="display: flex; flex-direction: column; gap: 12px">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               {filteredAlerts.value.map((alert) => (
                 <div
                   key={alert.id}
@@ -138,24 +261,24 @@ export default defineComponent({
                     opacity: alert.resolved ? 0.6 : 1,
                   }}
                 >
-                  <span style="font-size: 20px; flex-shrink: 0">
+                  <span style={{ fontSize: '20px', flexShrink: 0 }}>
                     {levelIcon[alert.level] || 'ℹ️'}
                   </span>
 
-                  <div style="flex: 1; min-width: 0">
-                    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px">
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
                       <span class={`badge badge-${alert.level}`}>{alert.level.toUpperCase()}</span>
-                      <span style="font-size: 12px; color: var(--text-secondary)">
+                      <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
                         {new Date(alert.timestamp).toLocaleString('zh-CN')}
                       </span>
                       {alert.resolved && (
                         <span class="badge badge-ready">已处理</span>
                       )}
                     </div>
-                    <div style="font-size: 14px; font-weight: 500">
+                    <div style={{ fontSize: '14px', fontWeight: 500 }}>
                       {alert.description}
                     </div>
-                    <div style="font-size: 12px; color: var(--text-secondary); margin-top: 4px">
+                    <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
                       代码: {alert.code}
                     </div>
                   </div>
@@ -163,10 +286,10 @@ export default defineComponent({
                   {!alert.resolved && (
                     <button
                       class="btn btn-outline btn-sm"
-                      onClick={() => resolve(alert.id)}
-                      style="flex-shrink: 0"
+                      onClick={() => resolveAlert(alert.id)}
+                      style={{ flexShrink: 0 }}
                     >
-                      ✅ 标记处理
+                      标记处理
                     </button>
                   )}
                 </div>

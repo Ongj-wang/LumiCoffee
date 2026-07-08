@@ -98,7 +98,7 @@ class AGVAdapter(DeviceBase):
                 status = self._client.status.get_robot_status(timeout=5)
                 results = status.get("results", {})
                 move_status = results.get("move_status", "")
-
+                print("move_to:move_status",move_status)
                 if move_status == "succeeded":
                     self._logger.info(f"已到达目标: {target_name}")
                     return True
@@ -216,3 +216,9 @@ class AGVAdapter(DeviceBase):
         if self._client:
             self._client.register_notification_handler(callback)
             self._logger.info("已注册 AGV 通知回调")
+    
+    def AGV_Back(self,AGV_linear_velocity: float, AGV_angular_velocity: float, AGV_uuid: Optional[str] = None,AGV_timeout: Optional[float] = None):
+        """
+        AGV_linear_velocity 范围必须是负数，范围是-0.5到0.5m/s ， 时间固定为0.5s  ,调速度来设置距离[-0.25m , 0.25m]
+        """
+        return  self._client.movement.joy_control(AGV_linear_velocity, AGV_angular_velocity)

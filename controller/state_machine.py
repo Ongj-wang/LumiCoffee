@@ -63,6 +63,17 @@ class StateMachine:
         self._target_floor: int = 1
         self._target_room: str = ""
         self._remaining_items: List[Dict[str, Any]] = []  # [{"drink": "拿铁", "tray_slot": 0}, ...]
+        #当前杯出现问题的错误描述
+        self._error_context: Dict[str, Any] = {
+            "source": "",               # 错误来源：placing_coffee / navigating_to_room / returning
+            "action_pending": False,    # 是否有待人工确认的操作
+            "action": None,             # 待执行的操作：retry / skip / abort / None
+            "cup": None,                # 当前出错杯，优先取 _remaining_items[0]
+            "message": "",              # 当前错误文案
+            "created_at": None,         # 进入错误态时间（ISO 格式字符串或 datetime）
+            "order_id": "",             # 当前任务单号
+        }
+        
 
         # 告警回调
         self._alert_callback: Optional[Callable] = None
@@ -246,13 +257,17 @@ class StateMachine:
         logger.info(f"导航至房间: {target_marker}")
         self.shared_status["moveStatus"] = "running"
 
-        ok = self.agv.move_to(target_marker)
+        ok = self.agv.move_to(self._target_room)
+
         if ok:
+
             self.shared_status["moveStatus"] = "idle"
-            self._transition_to(RobotState.VISION_CALIBRATING)
+            self._transition_to(RobotState.VISION_CALIBRATING )
+            self.agv.AGV_Back(-0.5,0)#后退25cm
+
         else:
             self._raise_alert(f"导航至 {target_marker} 失败", level="warning")
-            self._transition_to(RobotState.ERROR, error_msg=f"导航失败: {target_marker}")
+            self._transition_to(RobotState.ERROR, error_msg=f"导航失败: {target_marker}",  error_source="navigating_to_room")
 
     def _tick_vision_calibrating(self):
         """VISION_CALIBRATING: 视觉校准放置位置"""
@@ -295,7 +310,7 @@ class StateMachine:
         # 获取当前要放置的饮品
         if not self._remaining_items:
             logger.warning("没有剩余饮品可放置")
-            self._transition_to(RobotState.RETURNING)
+            self._transition_to(RobotState.RETURNING , error_msg="机械臂取饮品位置运动失败", error_source="placing_coffee")
             return
 
         current_cup = self._remaining_items[0]
@@ -307,24 +322,26 @@ class StateMachine:
         pick_pose = self._compute_pick_pose(tray_slot)
 
         # 机械臂运动到放置位
-        ok = self.arm.move_to_pose(config.TAKE_CUP_READY_POSE)
+        self.arm.move_to_joint(config.HOME_PASS,0.5)
+        ok = self.arm.move_to_joint(config.TAKE_CUP_READY_POSE,0.5)
         if not ok:
             logger.error("机械臂运动到取饮品位置失败")
             self._raise_alert("机械臂取饮品位置运动失败", level="warning")
-            self._transition_to(RobotState.ERROR, error_msg="机械臂取饮品位置运动失败")
+            self._transition_to(RobotState.RETURNING , error_msg="机械臂取饮品位置运动失败", error_source="placing_coffee")
             return
         self.arm.move_to_pose(pick_pose,0,50)
-        self.arm.move_to_pose([0,0,40,0,0,0],1,30) # 机械臂抬起饮品
+        self.arm.move_to_pose([0,0,300,0,0,0],1,30) # 机械臂抬起饮品
 
         # 机械臂运动到放置位
         self.arm.move_to_pose(config.PLACE_POSE, move_mode=0, speed=40)
-        self.arm.move_to_pose([0,0,-15,0,0,0],1,30)
+        self.arm.move_to_pose([0,0,-45,0,0,0],1,30)
         self.arm.move_to_pose(config.PLACE_CUP_OVER, 60)
+        self.arm.move_to_pose([0,0,120,0,0,0],move_mode=1,speed=60)
 
         # # 夹爪释放
         # self.gripper.open()
         # time.sleep(0.5)
-
+        # self.agv.move_to(f"{self._target_room}_back")
         # 机械臂收回安全位
         self.arm.go_home()
         time.sleep(0.3)
@@ -369,7 +386,7 @@ class StateMachine:
             ok = self.agv.move_to_floor(1)
             if not ok:
                 self._raise_alert("返回取餐点乘梯失败", level="warning")
-                self._transition_to(RobotState.ERROR, error_msg="返回失败")
+                self._transition_to(RobotState.ERROR, error_msg="返回取餐点乘梯失败" , error_source="returning")
                 return
 
         # 前往取餐点 marker
@@ -380,7 +397,7 @@ class StateMachine:
             self._transition_to(RobotState.COMPLETED)
         else:
             self._raise_alert("返回取餐点导航失败", level="warning")
-            self._transition_to(RobotState.ERROR, error_msg="返回导航失败")
+            self._transition_to(RobotState.ERROR, error_msg="返回导航失败", error_source="returning")
 
     def _tick_completed(self):
         """COMPLETED: 任务完成，检查是否还有新任务"""
@@ -404,8 +421,87 @@ class StateMachine:
 
     def _tick_error(self):
         """ERROR: 异常状态，等待人工介入"""
-        # 保持当前状态，等待外部调用 resolve_error()
-        pass
+          # 1) 安全保持：不自动恢复，不继续运动
+        self.shared_status["moveStatus"] = "idle"
+
+        try:
+            if self.agv.is_moving():
+                self.agv.cancel_move()
+        except Exception as e:
+            logger.warning(f"ERROR 状态取消底盘运动失败: {e}")
+
+        try:
+            self.arm.abort()
+        except Exception as e:
+            logger.warning(f"ERROR 状态中止机械臂失败: {e}")
+
+        # 2) 动作消费：没有人工动作就继续等待
+        with self._lock:
+            if not self._error_context.get("action_pending"):
+                return
+
+            action = self._error_context.get("action")
+            self._error_context["action_pending"] = False
+            self._error_context["action"] = None
+
+        if action == "skip_current_cup":
+            self._handle_skip_current_cup()
+            return
+
+        if action == "cancel_current_cup":
+            self._handle_cancel_current_cup()
+            return
+
+        logger.warning(f"未知人工动作: {action}")
+
+
+
+    def _handle_skip_current_cup(self):
+        """人工选择跳过当前杯，继续后续流程"""
+        if self._error_context.get("source") != "placing_coffee":
+            logger.warning("当前错误来源不是 placing_coffee，不允许下一杯")
+            return
+
+        if not self._remaining_items:
+            logger.warning("没有可跳过的当前杯")
+            self._transition_to(RobotState.RETURNING)
+            return
+
+        skipped = self._remaining_items.pop(0)
+        logger.info(
+            f"人工跳过当前杯: {skipped.get('drink')} "
+            f"(托盘第 {skipped.get('tray_slot')} 格), 剩余: {len(self._remaining_items)}"
+        )
+
+        # 还有同房间剩余杯，继续放杯
+        if self._remaining_items:
+            self._transition_to(RobotState.PLACING_COFFEE)
+            return
+
+        # 当前房间没有剩余杯，走和正常放杯完成后一样的收尾逻辑
+        self._advance_after_current_room(task_success=False)
+
+    def _handle_cancel_current_cup(self):
+        """人工取消当前杯，不再放置这杯"""
+        if self._error_context.get("source") != "placing_coffee":
+            logger.warning("当前错误来源不是 placing_coffee，不允许取消当前杯")
+            return
+
+        if not self._remaining_items:
+            logger.warning("没有可取消的当前杯")
+            self._transition_to(RobotState.RETURNING)
+            return
+
+        canceled = self._remaining_items.pop(0)
+        logger.info(
+            f"人工取消当前杯: {canceled.get('drink')} "
+            f"(托盘第 {canceled.get('tray_slot')} 格), 剩余: {len(self._remaining_items)}"
+        )
+
+        if self._remaining_items:
+            self._transition_to(RobotState.PLACING_COFFEE)
+            return
+        self._advance_after_current_room(task_success=False)
 
     def _tick_charging(self):
         """CHARGING: 低电量，前往充电点"""
@@ -428,6 +524,45 @@ class StateMachine:
     # ------------------------------------------------------------------
     # 外部控制接口
     # ------------------------------------------------------------------
+
+    def get_error_context(self) -> Dict[str, Any]:
+        """专门返回前端可用的错误上下文"""
+        source = self._error_context.get("source")
+        available_actions = []
+
+        if self.current_state == RobotState.ERROR:
+            if source == "placing_coffee":
+                available_actions = ["skip_current_cup", "cancel_current_cup"]
+
+        cup = self._error_context.get("cup")
+        if isinstance(cup, dict):
+            cup = dict(cup)
+
+        return {
+            "source": source,
+            "actionPending": self._error_context.get("action_pending", False),
+            "availableActions": available_actions,
+            "cup": cup,
+            "message": self._error_context.get("message"),
+        }
+
+
+    def submit_error_action(self, action: str) -> bool:
+        """外部给状态机下控制指令"""
+        allowed_actions = ["cancel_current_cup"]
+
+        if self._error_context.get("source") == "placing_coffee":
+            allowed_actions.append("skip_current_cup")
+
+        if self._state != RobotState.ERROR:
+            return False
+
+        if action not in allowed_actions:
+            return False
+
+        self._error_context["action_pending"] = True
+        self._error_context["action"] = action
+        return True
 
     def resolve_error(self):
         """人工解除异常状态"""
@@ -460,7 +595,7 @@ class StateMachine:
     # 内部方法
     # ------------------------------------------------------------------
 
-    def _transition_to(self, new_state: RobotState, error_msg: str = None):
+    def _transition_to(self, new_state: RobotState, error_msg: str = None, error_source:str = None):
         """状态转换"""
         with self._lock:
             old = self._state
@@ -475,6 +610,31 @@ class StateMachine:
         if error_msg:
             self.shared_status["lastError"] = error_msg
 
+        if new_state == RobotState.ERROR:
+                current_cup = None
+                if self._remaining_items:
+                    current_cup = dict(self._remaining_items[0])
+
+                self._error_context = {
+                    "source": error_source,
+                    "action_pending": False,
+                    "action": None,
+                    "cup": current_cup,
+                    "message": error_msg,
+                    "order_id": self._current_task.order_id if self._current_task else None,
+                    "created_at": time.time(),
+                }
+        else:
+                # 一旦离开错误态，清空错误上下文，避免前端读到脏数据
+                self._error_context = {
+                    "source": None,
+                    "action_pending": False,
+                    "action": None,
+                    "cup": None,
+                    "message": None,
+                    "order_id": None,
+                    "created_at": None,
+                }
         logger.info(f"状态转换: {old.value} -> {new_state.value}" + (f" ({error_msg})" if error_msg else ""))
 
     def _refresh_agv_status(self):
