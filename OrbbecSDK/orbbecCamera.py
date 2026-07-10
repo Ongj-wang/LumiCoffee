@@ -3,7 +3,7 @@ import sys
 import cv2
 import numpy as np
 import time
-
+import traceback
 # Add pyorbbecsdk build directory to Python path
 _current_dir = os.path.dirname(os.path.abspath(__file__))
 _pyorbbecsdk_build_path = os.path.join(_current_dir, 'pyorbbecsdkMain', 'build')
@@ -120,6 +120,7 @@ class Camera():
                 if color_frame is not None:
                     # covert to RGB format
                     color_image = frame_to_bgr_image(color_frame)
+                    print("color_image 1111111",color_image)
                     return color_image
                 break
             except Exception as e:
@@ -127,6 +128,7 @@ class Camera():
                 return []
     def getColorDepthData(self):
         # 获取一帧图像
+        print("getColorDepthData start called")
         while True:
             try:
                 frames: FrameSet = self.pipeline.wait_for_frames(1000)
@@ -136,6 +138,7 @@ class Camera():
 
                 color_frame = frames.get_color_frame()
                 depth_frame = frames.get_depth_frame()
+                print("6666666666666666666")
                 if color_frame is None or depth_frame is None:
                     print('color/depth frame is None')
                     continue
@@ -143,6 +146,7 @@ class Camera():
                 if color_frame is not None:
                     # covert to RGB format
                     color_image = frame_to_bgr_image(color_frame)
+                    print("color_image 2222222",color_image)
 
                 if depth_frame is not None:
                     depth_frame = frames.get_depth_frame()
@@ -171,13 +175,21 @@ class Camera():
 
                 depth_image = cv2.normalize(depth_data, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
                 depth_image = cv2.applyColorMap(depth_image, cv2.COLORMAP_JET)
-
+                # 关键: 深度图与彩色图分辨率通常不一致 (如 Gemini 2 L 默认 640x576 vs 1280x720),
+                # SW align 不会自动 resize depth frame 的 H/W, 这里手动对齐到 color_image 尺寸
+                if depth_image.shape[:2] != color_image.shape[:2]:
+                    depth_image = cv2.resize(
+                        depth_image,
+                        (color_image.shape[1], color_image.shape[0]),
+                        interpolation=cv2.INTER_NEAREST,  # 深度图用最近邻避免插值产生伪深度
+                    )
+                print("color_image 333333333",color_image)
                 # overlay color image on depth image
                 depth_image = cv2.addWeighted(color_image, 0.5, depth_image, 0.5, 0)
-
+                print("color_image 444444444",color_image)
                 return color_image, depth_data, depth_image
             except Exception as e:
-                # print(e)
+                print(traceback.format_exc())
                 return [],[],[]
 
     def close(self):

@@ -55,7 +55,8 @@ class VisionAdapter(DeviceBase):
         # 加载手眼标定参数
         self._load_calib_params()
 
-        try:
+        # try:
+        if True:
             # 将 OrbbecSDK 加入 Python 路径
             sdk_dir = config.ORBBEC_SDK_PATH
             if os.path.exists(sdk_dir):
@@ -71,14 +72,14 @@ class VisionAdapter(DeviceBase):
             self._logger.info("Orbbec 深度相机连接成功")
             return True
 
-        except ImportError:
-            self._logger.warning("pyorbbecsdk 未安装，视觉模块以 stub 模式运行")
-            self._set_state(DeviceState.CONNECTED)
-            return True
-        except Exception as e:
-            self._set_state(DeviceState.ERROR, f"相机连接失败: {e}")
-            self._logger.error(f"相机连接失败: {e}")
-            return False
+        # except ImportError:
+        #     self._logger.warning("pyorbbecsdk 未安装，视觉模块以 stub 模式运行")
+        #     self._set_state(DeviceState.CONNECTED)
+        #     return True
+        # except Exception as e:
+        #     self._set_state(DeviceState.ERROR, f"相机连接失败: {e}")
+        #     self._logger.error(f"相机连接失败: {e}")
+        #     return False
 
     def disconnect(self):
         """关闭相机"""
@@ -128,6 +129,7 @@ class VisionAdapter(DeviceBase):
             是否成功获取图像
         """
         if not self.is_connected():
+            print("相机连接失败")
             return False
 
         # stub 模式

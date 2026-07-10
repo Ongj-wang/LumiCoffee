@@ -264,7 +264,6 @@ class StateMachine:
 
             self.shared_status["moveStatus"] = "idle"
             self._transition_to(RobotState.VISION_CALIBRATING )
-            self.agv.AGV_Back(-0.5,0)#后退25cm
 
         else:
             self._raise_alert(f"导航至 {target_marker} 失败", level="warning")
@@ -341,6 +340,7 @@ class StateMachine:
 
         # 机械臂运动到放置位
         self.arm.move_to_joint(config.HOME_PASS,0.5)
+        print("vvvvvvvvvvvvvvvvvvvvvv")
         ok = self.arm.move_to_joint(config.TAKE_CUP_READY_POSE,0.5)
         if not ok:
             logger.error("机械臂运动到取饮品位置失败")
@@ -374,6 +374,11 @@ class StateMachine:
             logger.info(f"同房间还有 {len(self._remaining_items)} 杯，继续放置")
             self._transition_to(RobotState.PLACING_COFFEE)
             return
+        
+        print("AGV_Back start call")
+        ret =self.agv.AGV_Back(-0.5,0)#后退25cm
+        print("AGV_Back ret" ,ret)
+        print("AGV_Back start call  end")
 
         # 当前房间完成，检查同楼层其他任务
         same_floor_task = self.task_manager.pop_same_floor(self._target_floor)
