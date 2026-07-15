@@ -121,6 +121,7 @@ class StateMachine:
         """连接所有设备"""
         logger.info("正在连接设备...")
         agv_ok = self.agv.connect()
+        agv_ok = True #agv 不存在需要连接，agv开机默认就是连接上的，后续的move_to也是send_to(command)
         arm_ok = self.arm.connect()
         vis_ok = self.vision.connect()
         grip_ok = self.gripper.connect()
@@ -478,11 +479,165 @@ class StateMachine:
         logger.warning(f"未知人工动作: {action}")
 
 
+    def _advance_after_current_room(self, task_success: bool = False):
+        """
+            当前任务标记完成/失败
+            -> 查同楼层是否还有任务
+                -> 有：切换到新任务，进入 NAVIGATING_TO_ROOM
+                -> 无：清空当前任务，进入 RETURNING
+
+        适用场景：
+        - placing_coffee 中人工取消/跳过最后一杯
+        - navigating_to_room 中放弃当前房间
+        - 当前房间无法继续配送，需要转向同楼层其他任务或返回取餐点
+
+        不适用：
+        - returning 异常。returning 已经在返回流程中，不能再转 RETURNING，
+        否则可能形成 returning -> ERROR -> RETURNING 的循环。
+        """
+        if self._current_task:
+            logger.info(
+                f"当前房间收尾: order={self._current_task.order_id}, "
+                f"success={task_success}, room={self._target_room}"
+            )
+            self.task_manager.complete_task(self._current_task, success=task_success)
+
+        same_floor_task = self.task_manager.pop_same_floor(self._target_floor)
+
+        if same_floor_task:
+            logger.info(
+                f"同楼层继续配送: {same_floor_task.order_id} "
+                f"-> {same_floor_task.floor}F-{same_floor_task.room}"
+            )
+
+            self._current_task = same_floor_task
+            self._target_floor = same_floor_task.floor
+            self._target_room = same_floor_task.room
+            self._remaining_items = list(same_floor_task.items)
+
+            self.shared_status["currentTask"] = same_floor_task.order_id
+            self.shared_status["targetFloor"] = same_floor_task.floor
+            self.shared_status["targetRoom"] = same_floor_task.room
+            self.shared_status["moveStatus"] = "idle"
+
+            self._transition_to(RobotState.NAVIGATING_TO_ROOM)
+            return
+
+        logger.info("当前楼层无后续任务，准备返回取餐点")
+
+        self._current_task = None
+        self._remaining_items = []
+        self.shared_status["currentTask"] = None
+        self.shared_status["targetRoom"] = None
+        self.shared_status["moveStatus"] = "idle"
+
+        self._transition_to(RobotState.RETURNING)
+
+
+
+    def _handle_returning_error_action(self, action: str):
+        """
+        returning 异常下的人工处理。
+
+        适用场景：
+        - 返回取餐点失败
+        - 返回过程中底盘异常
+        - 人工在网页上点击“取消当前杯”或“下一杯”
+
+        注意：
+        returning 已经处在返回流程中，不能再调用 _advance_after_current_room()，
+        否则可能形成 returning -> ERROR -> RETURNING 的循环。
+        """
+        logger.info(f"人工处理 returning 异常: action={action}")
+
+        # 1. 安全停止底盘和机械臂
+        try:
+            if self.agv.is_moving():
+                self.agv.cancel_move()
+        except Exception as e:
+            logger.warning(f"returning 异常处理时取消底盘运动失败: {e}")
+
+        try:
+            self.arm.abort()
+        except Exception as e:
+            logger.warning(f"returning 异常处理时中止机械臂失败: {e}")
+
+        # 2. 当前任务如果还挂着，标记为失败收尾
+        if self._current_task:
+            logger.info(
+                f"returning 异常后结束当前任务: "
+                f"{self._current_task.order_id}, success=False"
+            )
+            self.task_manager.complete_task(self._current_task, success=False)
+
+        # 3. 清理当前执行上下文
+        self._current_task = None
+        self._remaining_items = []
+        self._target_room = ""
+        self.shared_status["currentTask"] = None
+        self.shared_status["targetRoom"] = None
+        self.shared_status["moveStatus"] = "idle"
+
+        # 4. 根据队列决定下一步
+        if self.task_manager.has_tasks():
+            logger.info("returning 异常已人工处理，队列仍有任务，进入 DISPATCHING")
+            self._transition_to(RobotState.DISPATCHING)
+            return
+
+        logger.info("returning 异常已人工处理，队列为空，进入 IDLE")
+        self._transition_to(RobotState.IDLE)
+
+
+    def _handle_navigating_to_room_error_action(self, action: str):
+        """
+        navigating_to_room 异常下的人工处理。
+
+        语义：
+        - cancel_current_cup: 取消当前杯
+        - skip_current_cup: 跳过当前杯，进入下一杯
+        当前实现里两者动作一致：都从 _remaining_items 移除当前杯。
+        """
+        logger.info(f"人工处理导航异常: action={action}")
+
+        try:
+            if self.agv.is_moving():
+                self.agv.cancel_move()
+        except Exception as e:
+            logger.warning(f"导航异常处理时取消底盘运动失败: {e}")
+
+        if not self._remaining_items:
+            logger.warning("导航异常处理时没有可取消/跳过的当前杯")
+            self._advance_after_current_room(task_success=False)
+            return
+
+        removed = self._remaining_items.pop(0)
+        logger.info(
+            f"导航异常人工处理，移除当前杯: {removed.get('drink')} "
+            f"(托盘第 {removed.get('tray_slot')} 格), "
+            f"剩余: {len(self._remaining_items)}"
+        )
+
+        if self._remaining_items:
+            logger.info("当前房间仍有剩余杯，重新尝试导航到房间")
+            self._transition_to(RobotState.NAVIGATING_TO_ROOM)
+            return
+
+        logger.info("当前房间无剩余杯，按失败/部分失败收尾")
+        self._advance_after_current_room(task_success=False)
+
 
     def _handle_skip_current_cup(self):
         """人工选择跳过当前杯，继续后续流程"""
-        if self._error_context.get("source") != "placing_coffee":
-            logger.warning("当前错误来源不是 placing_coffee，不允许下一杯")
+        source = self._error_context.get("source")
+
+        if source == "returning":
+            self._handle_returning_error_action("skip_current_cup")
+            return
+        if source == "navigating_to_room":
+            self._handle_navigating_to_room_error_action("skip_current_cup")
+            return
+        if source not in ("placing_coffee", "navigating_to_room", "returning"):
+            logger.warning(" 当前错误来源:",source)
             return
 
         if not self._remaining_items:
@@ -506,8 +661,16 @@ class StateMachine:
 
     def _handle_cancel_current_cup(self):
         """人工取消当前杯，不再放置这杯"""
-        if self._error_context.get("source") != "placing_coffee":
-            logger.warning("当前错误来源不是 placing_coffee，不允许取消当前杯")
+        source = self._error_context.get("source")
+        if source == "returning":
+            self._handle_returning_error_action("skip_current_cup")
+            return
+        
+        if source == "navigating_to_room":
+            self._handle_navigating_to_room_error_action("skip_current_cup")
+            return
+        if source not in ("placing_coffee", "navigating_to_room", "returning"):
+            logger.warning(" 当前错误来源:",source)
             return
 
         if not self._remaining_items:
@@ -554,7 +717,7 @@ class StateMachine:
         available_actions = []
 
         if self.current_state == RobotState.ERROR:
-            if source == "placing_coffee":
+            if source in ("placing_coffee", "navigating_to_room", "returning"):
                 available_actions = ["skip_current_cup", "cancel_current_cup"]
 
         cup = self._error_context.get("cup")
@@ -572,10 +735,11 @@ class StateMachine:
 
     def submit_error_action(self, action: str) -> bool:
         """外部给状态机下控制指令"""
-        allowed_actions = ["cancel_current_cup"]
+        actionable_sources = ("placing_coffee", "navigating_to_room", "returning")
+        allowed_actions = []
 
-        if self._error_context.get("source") == "placing_coffee":
-            allowed_actions.append("skip_current_cup")
+        if self._error_context.get("source") in actionable_sources:
+            allowed_actions = ["skip_current_cup", "cancel_current_cup"]
 
         if self._state != RobotState.ERROR:
             return False

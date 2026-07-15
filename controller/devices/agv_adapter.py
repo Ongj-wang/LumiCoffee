@@ -15,6 +15,10 @@ from controller import config
 logger = logging.getLogger("controller.devices.agv")
 
 
+
+
+
+
 class AGVAdapter(DeviceBase):
     """AGV 底盘适配器
 
@@ -53,6 +57,25 @@ class AGVAdapter(DeviceBase):
             self._set_state(DeviceState.ERROR, f"连接失败: {e}")
             return False
 
+    def _ensure_client(self) -> bool:
+        if self._client is not None:
+            return True
+
+        try:
+            from agv_comm import AGVClient
+            self._client = AGVClient(host=config.AGV_HOST, port=config.AGV_PORT)
+
+            # 如果底层 AGVClient 仍然是 TCP 长连接，就这里 connect
+            # 如果你后续把 AGVClient 改成无连接发送，这里就不需要 connect
+            self._client.connect()
+
+            self._set_state(DeviceState.CONNECTED)
+            return True
+        except Exception as e:
+            self._set_state(DeviceState.ERROR, f"AGV 客户端准备失败: {e}")
+            return False
+
+
     def disconnect(self):
         """断开 AGV 连接"""
         if self._client:
@@ -77,10 +100,9 @@ class AGVAdapter(DeviceBase):
         Returns:
             是否成功到达目标
         """
-        if not self.is_connected():
-            self._logger.error("AGV 未连接，无法执行移动")
-            return False
-
+        if not self._ensure_client():
+         print("not ._ensure_client")
+         return False
         timeout = timeout or config.NAVIGATION_TIMEOUT
         self._logger.info(f"开始移动至: {target_name}")
 
@@ -132,7 +154,7 @@ class AGVAdapter(DeviceBase):
 
     def cancel_move(self) -> bool:
         """取消当前移动任务"""
-        if not self.is_connected():
+        if not self._ensure_client():
             return False
         try:
             self._client.movement.cancel_move(timeout=5)
@@ -144,7 +166,7 @@ class AGVAdapter(DeviceBase):
 
     def emergency_stop(self, enable: bool = True) -> bool:
         """设置/解除急停"""
-        if not self.is_connected():
+        if not self._ensure_client():
             return False
         try:
             self._client.movement.estop(enable=enable, timeout=5)
@@ -162,7 +184,7 @@ class AGVAdapter(DeviceBase):
     def get_status(self) -> Dict[str, Any]:
         """获取 AGV 完整状态"""
         base = super().get_status()
-        if not self.is_connected():
+        if not self._ensure_client():
             return base
 
         try:
