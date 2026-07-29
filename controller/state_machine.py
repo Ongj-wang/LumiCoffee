@@ -348,6 +348,7 @@ class StateMachine:
             self._raise_alert("机械臂取饮品位置运动失败", level="warning")
             self._transition_to(RobotState.RETURNING , error_msg="机械臂取饮品位置运动失败", error_source="placing_coffee")
             return
+        print("pick_pose",pick_pose)
         self.arm.move_to_pose(pick_pose,0,50)
         self.arm.move_to_pose([0,0,300,0,0,0],1,30) # 机械臂抬起饮品
 

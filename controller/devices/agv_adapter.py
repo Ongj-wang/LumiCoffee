@@ -109,7 +109,9 @@ class AGVAdapter(DeviceBase):
         try:
             # 发送移动指令
             resp = self._client.movement.move_to_marker(target_name, timeout=10)
+            print("move to sucess")
             task_id = resp.get("results", {}).get("task_id")
+            print("task_id 999999999999999999999",task_id)
             if not task_id:
                 self._logger.error(f"移动指令无 task_id: {resp}")
                 return False
@@ -124,7 +126,10 @@ class AGVAdapter(DeviceBase):
                 if move_status == "succeeded":
                     self._logger.info(f"已到达目标: {target_name}")
                     return True
-                elif move_status in ("failed", "canceled"):
+                if move_status == "canceled":
+                    self._logger.info(f"机器人当前空闲，可以接受新的移动: {move_status}")
+                    #return True
+                if move_status == "failed":
                     self._logger.error(f"移动失败: {move_status}")
                     return False
 
