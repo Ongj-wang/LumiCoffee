@@ -342,6 +342,7 @@ class StateMachine:
         # 机械臂运动到放置位
         self.arm.move_to_joint(config.HOME_PASS,0.5)
         print("vvvvvvvvvvvvvvvvvvvvvv")
+        self.arm.move_to_joint(config.PLACE_Posion1,0.5)
         ok = self.arm.move_to_joint(config.TAKE_CUP_READY_POSE,0.5)
         if not ok:
             logger.error("机械臂运动到取饮品位置失败")
@@ -349,14 +350,18 @@ class StateMachine:
             self._transition_to(RobotState.RETURNING , error_msg="机械臂取饮品位置运动失败", error_source="placing_coffee")
             return
         print("pick_pose",pick_pose)
-        self.arm.move_to_pose(pick_pose,0,50)
-        self.arm.move_to_pose([0,0,300,0,0,0],1,30) # 机械臂抬起饮品
+        # self.arm.move_to_pose(pick_pose,0,50)
+        self.arm.move_to_pose([0,75,0,0,0,0], 1, 30)  #伸进去
+        self.arm.move_to_pose([0,0,200,0,0,0],1,30) # 机械臂抬起饮品
 
         # 机械臂运动到放置位
-        self.arm.move_to_pose(config.PLACE_POSE, move_mode=0, speed=40)
-        self.arm.move_to_pose([0,0,-45,0,0,0],1,30)
-        self.arm.move_to_pose(config.PLACE_CUP_OVER, 60)
-        self.arm.move_to_pose([0,0,120,0,0,0],move_mode=1,speed=60)
+        self.arm.move_to_joint(config.PLACE_POSE, 0.5)
+        self.arm.move_to_joint(config.PLACE_POSE_EXIT, 0.5)
+        self.arm.move_to_joint(config.PLACE_POSE_DOWN, 0.5)
+        self.arm.move_to_pose([0,-75,0,0,0,0], 1, 30)  #放出来
+        # self.arm.move_to_pose([0,0,-45,0,0,0],1,30)
+        # self.arm.move_to_pose(config.PLACE_CUP_OVER, 60)
+        # self.arm.move_to_pose([0,0,120,0,0,0],move_mode=1,speed=60)
 
         # # 夹爪释放
         # self.gripper.open()

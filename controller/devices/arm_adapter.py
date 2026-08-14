@@ -165,7 +165,7 @@ class ArmAdapter(DeviceBase):
     def go_home(self) -> bool:
         """回到预设安全位"""
         self._logger.info("机械臂回到安全位")
-        return self.move_to_joint(config.ARM_HOME_JOINTS)
+        return self.move_to_joint(config.HOME_PASS)
 
     def abort(self) -> bool:
         """中止当前运动"""

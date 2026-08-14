@@ -108,18 +108,18 @@ class AGVAdapter(DeviceBase):
 
         try:
             # 发送移动指令
-            resp = self._client.movement.move_to_marker(target_name, timeout=10)
+            resp = self._client.movement.move_to_marker(target_name, timeout=9990)
             print("move to sucess")
             task_id = resp.get("results", {}).get("task_id")
             print("task_id 999999999999999999999",task_id)
             if not task_id:
                 self._logger.error(f"移动指令无 task_id: {resp}")
                 return False
-
+            time.sleep(2)
             # 轮询等待移动完成
-            start = time.time()
-            while time.time() - start < timeout:
-                status = self._client.status.get_robot_status(timeout=5)
+            #start = time.time()
+            while True:
+                status = self._client.status.get_robot_status(timeout=50)
                 results = status.get("results", {})
                 move_status = results.get("move_status", "")
                 print("move_to:move_status",move_status)
@@ -127,8 +127,8 @@ class AGVAdapter(DeviceBase):
                     self._logger.info(f"已到达目标: {target_name}")
                     return True
                 if move_status == "canceled":
-                    self._logger.info(f"机器人当前空闲，可以接受新的移动: {move_status}")
-                    #return True
+                    self._logger.info(f"移动失败: {move_status}")
+                    return False
                 if move_status == "failed":
                     self._logger.error(f"移动失败: {move_status}")
                     return False
